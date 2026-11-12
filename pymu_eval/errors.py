@@ -3,7 +3,9 @@ Error classes and message definitions for pymu-eval.
 Mirrors muParserError.h and muParserError.cpp from the C++ muParser library.
 """
 
-from typing import Optional, Union
+# pylint: disable=invalid-name
+
+from typing import Union
 from .definitions import EErrorCodes
 
 ERROR_MESSAGES: dict[EErrorCodes, str] = {
@@ -25,22 +27,34 @@ ERROR_MESSAGES: dict[EErrorCodes, str] = {
     EErrorCodes.ecUNEXPECTED_VAR: 'Unexpected variable "$TOK$" found at position $POS$',
     EErrorCodes.ecUNEXPECTED_ARG: "Function arguments used without a function (position: $POS$)",
     EErrorCodes.ecMISSING_PARENS: "Missing parenthesis",
-    EErrorCodes.ecTOO_MANY_PARAMS: 'Too many parameters for function "$TOK$" at expression position $POS$',
-    EErrorCodes.ecTOO_FEW_PARAMS: 'Too few parameters for function "$TOK$" at expression position $POS$',
+    EErrorCodes.ecTOO_MANY_PARAMS: (
+        'Too many parameters for function "$TOK$" at expression position $POS$'
+    ),
+    EErrorCodes.ecTOO_FEW_PARAMS: (
+        'Too few parameters for function "$TOK$" at expression position $POS$'
+    ),
     EErrorCodes.ecDIV_BY_ZERO: "Divide by zero",
     EErrorCodes.ecDOMAIN_ERROR: "Domain error",
     EErrorCodes.ecNAME_CONFLICT: "Name conflict",
-    EErrorCodes.ecOPT_PRI: "Invalid value for operator priority (must be greater or equal to zero).",
-    EErrorCodes.ecBUILTIN_OVERLOAD: 'user defined binary operator "$TOK$" conflicts with a built in operator.',
+    EErrorCodes.ecOPT_PRI: (
+        "Invalid value for operator priority (must be greater or equal to zero)."
+    ),
+    EErrorCodes.ecBUILTIN_OVERLOAD: (
+        'user defined binary operator "$TOK$" conflicts with a built in operator.'
+    ),
     EErrorCodes.ecUNEXPECTED_STR: "Unexpected string token found at position $POS$.",
     EErrorCodes.ecUNTERMINATED_STRING: "Unterminated string starting at position $POS$.",
     EErrorCodes.ecSTRING_EXPECTED: "String function called with a non string type of argument.",
     EErrorCodes.ecVAL_EXPECTED: "String value used where a numerical argument is expected.",
-    EErrorCodes.ecOPRT_TYPE_CONFLICT: 'No suitable overload for operator "$TOK$" at position $POS$.',
+    EErrorCodes.ecOPRT_TYPE_CONFLICT: (
+        'No suitable overload for operator "$TOK$" at position $POS$.'
+    ),
     EErrorCodes.ecSTR_RESULT: "Strings must only be used as function arguments!",
     EErrorCodes.ecGENERIC: "Parser error.",
     EErrorCodes.ecLOCALE: "Decimal separator is identic to function argument separator.",
-    EErrorCodes.ecUNEXPECTED_CONDITIONAL: 'The "$TOK$" operator must be preceded by a closing bracket.',
+    EErrorCodes.ecUNEXPECTED_CONDITIONAL: (
+        'The "$TOK$" operator must be preceded by a closing bracket.'
+    ),
     EErrorCodes.ecMISSING_ELSE_CLAUSE: "If-then-else operator is missing an else clause",
     EErrorCodes.ecMISPLACED_COLON: "Misplaced colon at position $POS$",
     EErrorCodes.ecUNREASONABLE_NUMBER_OF_COMPUTATIONS: (
@@ -48,11 +62,15 @@ ERROR_MESSAGES: dict[EErrorCodes, str] = {
     ),
     EErrorCodes.ecIDENTIFIER_TOO_LONG: "Identifier too long.",
     EErrorCodes.ecEXPRESSION_TOO_LONG: "Expression too long.",
-    EErrorCodes.ecINVALID_CHARACTERS_FOUND: "Invalid non printable characters found in expression/identifer!",
+    EErrorCodes.ecINVALID_CHARACTERS_FOUND: (
+        "Invalid non printable characters found in expression/identifer!"
+    ),
     EErrorCodes.ecBYTECODE_IMPORT_EXPORT_DISABLED: (
         "Bytecode cannot be imported or exported when parser is using a variable factory!"
     ),
-    EErrorCodes.ecUNARY_PLUS_IN_FRONT_OF_FUNCTION: "Unary plus operator is not allowed in front of functions!",
+    EErrorCodes.ecUNARY_PLUS_IN_FRONT_OF_FUNCTION: (
+        "Unary plus operator is not allowed in front of functions!"
+    ),
     EErrorCodes.ecNESTING_LIMIT: "Expression too complex. Nesting limit reached!",
 }
 
@@ -106,41 +124,52 @@ class ParserError(Exception):
 
     @property
     def code(self) -> EErrorCodes:
+        """Return the error code enum."""
         return self._code
 
     @property
     def msg(self) -> str:
+        """Return the formatted error message."""
         return self._msg
 
     @property
     def expr(self) -> str:
+        """Return the expression string associated with this error."""
         return self._expr
 
     @property
     def pos(self) -> int:
+        """Return the 0-based character position where the error occurred."""
         return self._pos
 
     @property
     def token(self) -> str:
+        """Return the offending token string."""
         return self._tok
 
     # C++ style accessors
     def GetCode(self) -> EErrorCodes:
+        """Return the error code enum (C++ compatibility)."""
         return self._code
 
     def GetMsg(self) -> str:
+        """Return the formatted error message (C++ compatibility)."""
         return self._msg
 
     def GetExpr(self) -> str:
+        """Return the expression string (C++ compatibility)."""
         return self._expr
 
     def GetPos(self) -> int:
+        """Return the character position of the error (C++ compatibility)."""
         return self._pos
 
     def GetToken(self) -> str:
+        """Return the offending token string (C++ compatibility)."""
         return self._tok
 
     def SetFormula(self, formula: str) -> None:
+        """Set the expression formula string (C++ compatibility)."""
         self._expr = formula
 
     # Pythonic snake_case accessors

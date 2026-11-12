@@ -6,10 +6,10 @@ Mirrors muParserToken.h, muParserCallback.h, and muParserTokenReader.cpp.
 from __future__ import annotations
 
 import inspect
-import re
 from typing import Any, Callable, Optional, TYPE_CHECKING
 
 from .definitions import (
+    BINARY_OPRT_CODES,
     DEFAULT_OPRT,
     ECmdCode,
     EErrorCodes,
@@ -40,9 +40,11 @@ class VariableRef:
         self.value = value
 
     def get(self) -> Any:
+        """Return the current value held by this variable reference."""
         return self.value
 
     def set(self, val: Any) -> Any:
+        """Update the value held by this variable reference and return it."""
         self.value = val
         return val
 
@@ -54,14 +56,14 @@ class VariableRef:
 Variable = VariableRef
 
 
-class ParserCallback:
+class ParserCallback:  # pylint: disable=too-many-instance-attributes
     """
     Encapsulates a function or operator callback along with its metadata
     (arity, precedence, associativity, command code, return/argument type, and optimizability).
     Mirrors mu::ParserCallback.
     """
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         func: Optional[Callable[..., Any]],
         allow_opt: bool = True,
@@ -106,88 +108,87 @@ class ParserCallback:
             params = params[1:]
 
         has_varargs = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params)
-        pos_params = [
-            p
-            for p in params
-            if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-        ]
+        pos_kinds = (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )
+        pos_params = [p for p in params if p.kind in pos_kinds]
 
         # Check if first positional parameter is annotated as str
-        first_is_str = False
-        if pos_params:
-            ann = pos_params[0].annotation
-            if ann is str or ann == "str":
-                first_is_str = True
+        first_is_str = bool(
+            pos_params and pos_params[0].annotation in (str, "str")
+        )
 
-        if first_is_str:
+        if first_is_str or self.code == ECmdCode.cmFUNC_STR:
             self.code = ECmdCode.cmFUNC_STR
             self.tp = ETypeCode.tpSTR
-            if has_varargs:
-                self.argc = -1
-            else:
-                self.argc = len(pos_params) - 1
+            self.argc = -1 if has_varargs else max(0, len(pos_params) - 1)
             self.allow_opt = False
-        elif self.code == ECmdCode.cmFUNC_STR:
-            self.tp = ETypeCode.tpSTR
-            if has_varargs:
-                self.argc = -1
-            else:
-                self.argc = max(0, len(pos_params) - 1)
-            self.allow_opt = False
+        elif has_varargs and len(pos_params) == 0:
+            self.argc = -1
         else:
-            if has_varargs and len(pos_params) == 0:
-                self.argc = -1
-            else:
-                # Count required positional parameters (or total positional if all required)
-                required = [p for p in pos_params if p.default is inspect.Parameter.empty]
-                self.argc = len(required) if required else len(pos_params)
+            # Count required positional parameters (or total positional if all required)
+            required = [p for p in pos_params if p.default is inspect.Parameter.empty]
+            self.argc = len(required) if required else len(pos_params)
 
     def is_valid(self) -> bool:
+        """Return True if the underlying callback is callable."""
         return callable(self.func)
 
     def is_optimizable(self) -> bool:
+        """Return True if constant folding is permitted for this callback."""
         return self.allow_opt
 
     def get_code(self) -> ECmdCode:
+        """Return the command code associated with this callback."""
         return self.code
 
     def get_type(self) -> ETypeCode:
+        """Return the value/parameter type code."""
         return self.tp
 
     def get_pri(self) -> int:
+        """Return operator precedence."""
         return self.prec
 
     def get_associativity(self) -> EOprtAssociativity:
+        """Return operator associativity."""
         return self.associativity
 
     def get_arg_count(self) -> int:
+        """Return expected argument count (-1 for variadic)."""
         return self.argc
 
     def call_fun(self, *args: Any) -> Any:
+        """Invoke a fixed-arity numeric function callback."""
         assert self.func is not None
         if self.has_user_data:
             return self.func(self.user_data, *args)
         return self.func(*args)
 
     def call_multfun(self, args: list[Any]) -> Any:
+        """Invoke a variadic numeric function callback."""
         assert self.func is not None
         if self.has_user_data:
             return self.func(self.user_data, *args)
         return self.func(*args)
 
     def call_strfun(self, str_arg: str, *num_args: Any) -> Any:
+        """Invoke a fixed-arity string function callback."""
         assert self.func is not None
         if self.has_user_data:
             return self.func(self.user_data, str_arg, *num_args)
         return self.func(str_arg, *num_args)
 
     def call_multstrfun(self, str_arg: str, num_args: list[Any]) -> Any:
+        """Invoke a variadic string function callback."""
         assert self.func is not None
         if self.has_user_data:
             return self.func(self.user_data, str_arg, *num_args)
         return self.func(str_arg, *num_args)
 
     def call_bulkfun(self, offset: int, thread_id: int, *args: Any) -> Any:
+        """Invoke a bulk-mode function callback."""
         assert self.func is not None
         if self.has_user_data:
             return self.func(self.user_data, offset, thread_id, *args)
@@ -210,6 +211,7 @@ class ParserToken:
         self.str_idx: int = -1
 
     def set(self, code_or_cb: ECmdCode | ParserCallback, str_tok: str = "") -> ParserToken:
+        """Configure this token as a command code or callback token."""
         if isinstance(code_or_cb, ParserCallback):
             cb = code_or_cb
             self.code = cb.get_code()
@@ -226,6 +228,7 @@ class ParserToken:
         return self
 
     def set_val(self, val: Any, str_tok: str = "") -> ParserToken:
+        """Configure this token as a numeric/array value token."""
         self.code = ECmdCode.cmVAL
         self.tp = ETypeCode.tpDBL
         self.val = val
@@ -235,6 +238,7 @@ class ParserToken:
         return self
 
     def set_var(self, var_ref: VariableRef, str_tok: str = "") -> ParserToken:
+        """Configure this token as a variable reference token."""
         self.code = ECmdCode.cmVAR
         self.tp = ETypeCode.tpDBL
         self.var_ref = var_ref
@@ -243,6 +247,7 @@ class ParserToken:
         return self
 
     def set_string(self, str_tok: str, idx: int) -> ParserToken:
+        """Configure this token as a string literal token."""
         self.code = ECmdCode.cmSTRING
         self.tp = ETypeCode.tpSTR
         self.str_tok = str_tok
@@ -253,24 +258,29 @@ class ParserToken:
         return self
 
     def get_code(self) -> ECmdCode:
+        """Return the token command code."""
         return self.code
 
     def get_type(self) -> ETypeCode:
+        """Return the token value type."""
         if self.callback is not None:
             return self.callback.get_type()
         return self.tp
 
     def get_pri(self) -> int:
+        """Return the operator priority of a callback token."""
         if self.callback is None:
             raise ParserError(EErrorCodes.ecINTERNAL_ERROR)
         return self.callback.get_pri()
 
     def get_associativity(self) -> EOprtAssociativity:
+        """Return the operator associativity of a callback token."""
         if self.callback is None:
             raise ParserError(EErrorCodes.ecINTERNAL_ERROR)
         return self.callback.get_associativity()
 
     def get_val(self) -> Any:
+        """Return the constant or variable value associated with this token."""
         if self.code == ECmdCode.cmVAL:
             return self.val
         if self.code == ECmdCode.cmVAR and self.var_ref is not None:
@@ -278,31 +288,37 @@ class ParserToken:
         raise ParserError(EErrorCodes.ecVAL_EXPECTED)
 
     def get_var(self) -> VariableRef:
+        """Return the VariableRef bound to a variable token."""
         if self.code != ECmdCode.cmVAR or self.var_ref is None:
             raise ParserError(EErrorCodes.ecINTERNAL_ERROR)
         return self.var_ref
 
     def get_arg_count(self) -> int:
+        """Return the argument count of a callback token."""
         if self.callback is None:
             raise ParserError(EErrorCodes.ecINTERNAL_ERROR)
         return self.callback.get_arg_count()
 
     def get_as_string(self) -> str:
+        """Return the raw token string."""
         return self.str_tok
 
     def get_idx(self) -> int:
+        """Return the string table index for a string token."""
         if self.str_idx < 0 or self.code != ECmdCode.cmSTRING:
             raise ParserError(EErrorCodes.ecINTERNAL_ERROR)
         return self.str_idx
 
     def get_func_addr(self) -> Optional[ParserCallback]:
+        """Return the callback object bound to this token, if any."""
         return self.callback
 
     def is_optimizable(self) -> bool:
+        """Return True if this token represents an optimizable callback."""
         return self.callback.is_optimizable() if self.callback is not None else False
 
 
-class ParserTokenReader:
+class ParserTokenReader:  # pylint: disable=too-many-instance-attributes
     """
     Token reader / lexer for ParserBase.
     Mirrors mu::ParserTokenReader in muParserTokenReader.cpp.
@@ -322,7 +338,9 @@ class ParserTokenReader:
         self._arg_sep: str = ","
 
     def clone(self, parent: ParserBase) -> ParserTokenReader:
+        """Clone this token reader and bind it to parent."""
         reader = ParserTokenReader(parent)
+        # pylint: disable=protected-access
         reader._formula = self._formula
         reader._pos = self._pos
         reader._syn_flags = self._syn_flags
@@ -340,7 +358,7 @@ class ParserTokenReader:
         Supports both:
         - Pythonic signature: callback(expr_substr: str) -> Optional[tuple[int, float]]
           or callback(expr: str, pos: int) -> tuple[bool, int, float]
-        - C++-like signature: callback(expr_substr: str, pos_list: list[int], val_list: list[float]) -> int/bool
+        - C++-like signature: callback(expr_substr, pos_list, val_list) -> int/bool
         """
         self._ident_funs.insert(0, self._wrap_val_ident(callback))
 
@@ -358,53 +376,54 @@ class ParserTokenReader:
             substr = formula[pos:]
             if n_params == 1:
                 res = callback(substr)
-                if res is None or res is False:
-                    return False, pos, 0.0
-                chars_processed, val = res
-                if chars_processed <= 0:
-                    return False, pos, 0.0
-                return True, pos + int(chars_processed), val
+                if res and res[0] > 0:
+                    return True, pos + int(res[0]), res[1]
             elif n_params == 2:
                 res = callback(formula, pos)
                 if isinstance(res, tuple) and len(res) == 3:
                     return bool(res[0]), int(res[1]), res[2]
-                if not res:
-                    return False, pos, 0.0
-                chars_processed, val = res
-                return True, pos + int(chars_processed), val
+                if res:
+                    return True, pos + int(res[0]), res[1]
             else:
                 pos_box = [pos]
                 val_box = [0.0]
-                ok = callback(substr, pos_box, val_box)
-                if ok:
+                if callback(substr, pos_box, val_box):
                     return True, int(pos_box[0]), val_box[0]
-                return False, pos, 0.0
+            return False, pos, 0.0
 
         return wrapped
 
     def get_pos(self) -> int:
+        """Return the current lexer position in the formula."""
         return self._pos
 
     def get_expr(self) -> str:
+        """Return the current formula string."""
         return self._formula
 
     def get_used_var(self) -> dict[str, Optional[VariableRef]]:
+        """Return the dictionary of variables referenced in the formula."""
         return self._used_var
 
     def set_formula(self, formula: str) -> None:
+        """Set a new formula string and reset lexer state."""
         self._formula = formula
         self.re_init()
 
     def ignore_undef_var(self, ignore: bool) -> None:
+        """Enable or disable ignoring undefined variables during lexing."""
         self._ignore_undef_var = ignore
 
     def set_arg_sep(self, sep: str) -> None:
+        """Set the function argument separator character."""
         self._arg_sep = sep
 
     def get_arg_sep(self) -> str:
+        """Return the function argument separator character."""
         return self._arg_sep
 
     def re_init(self) -> None:
+        """Reset lexer position, syntax flags, bracket stack, and used variables."""
         self._pos = 0
         self._syn_flags = ESynCodes.sfSTART_OF_LINE
         self._bracket_stack.clear()
@@ -416,7 +435,7 @@ class ParserTokenReader:
         return tok
 
     def _error(self, errc: EErrorCodes, pos: int = -1, tok: str = "") -> None:
-        self._parser._error(errc, pos, tok)
+        self._parser._error(errc, pos, tok)  # pylint: disable=protected-access
 
     def _extract_token(self, charset: str, pos: int) -> tuple[int, str]:
         n = len(self._formula)
@@ -433,6 +452,7 @@ class ParserTokenReader:
         return self._extract_token("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", pos)
 
     def read_next_token(self) -> ParserToken:
+        """Read and return the next token from the formula."""
         n = len(self._formula)
         # Skip whitespace (0 < ord <= 0x20), rejecting control chars 14..31
         while self._pos < n:
@@ -445,41 +465,27 @@ class ParserTokenReader:
                 break
 
         tok = ParserToken()
+        token_matchers = (
+            self._is_eof,
+            self._is_oprt,
+            self._is_fun_tok,
+            self._is_built_in,
+            self._is_arg_sep,
+            self._is_val_tok,
+            self._is_var_tok,
+            self._is_str_var_tok,
+            self._is_string,
+            self._is_infix_op_tok,
+            self._is_post_op_tok,
+        )
+        for matcher in token_matchers:
+            if matcher(tok):
+                return self._save_before_return(tok)
 
-        if self._is_eof(tok):
-            return self._save_before_return(tok)
-
-        if self._is_oprt(tok):
-            return self._save_before_return(tok)
-
-        if self._is_fun_tok(tok):
-            return self._save_before_return(tok)
-
-        if self._is_built_in(tok):
-            return self._save_before_return(tok)
-
-        if self._is_arg_sep(tok):
-            return self._save_before_return(tok)
-
-        if self._is_val_tok(tok):
-            return self._save_before_return(tok)
-
-        if self._is_var_tok(tok):
-            return self._save_before_return(tok)
-
-        if self._is_str_var_tok(tok):
-            return self._save_before_return(tok)
-
-        if self._is_string(tok):
-            return self._save_before_return(tok)
-
-        if self._is_infix_op_tok(tok):
-            return self._save_before_return(tok)
-
-        if self._is_post_op_tok(tok):
-            return self._save_before_return(tok)
-
-        if (self._ignore_undef_var or self._parser._var_factory is not None) and self._is_undef_var_tok(tok):
+        # pylint: disable=protected-access
+        if (
+            self._ignore_undef_var or self._parser._var_factory is not None
+        ) and self._is_undef_var_tok(tok):
             return self._save_before_return(tok)
 
         # Unknown token
@@ -501,27 +507,12 @@ class ParserTokenReader:
             return True
         return False
 
-    def _is_built_in(self, tok: ParserToken) -> bool:
+    def _is_built_in(self, tok: ParserToken) -> bool:  # pylint: disable=too-many-branches
         for i, op_str in enumerate(DEFAULT_OPRT):
             op_len = len(op_str)
             if self._formula.startswith(op_str, self._pos):
                 code = ECmdCode(i)
-                if code in (
-                    ECmdCode.cmLAND,
-                    ECmdCode.cmLOR,
-                    ECmdCode.cmLT,
-                    ECmdCode.cmGT,
-                    ECmdCode.cmLE,
-                    ECmdCode.cmGE,
-                    ECmdCode.cmNEQ,
-                    ECmdCode.cmEQ,
-                    ECmdCode.cmADD,
-                    ECmdCode.cmSUB,
-                    ECmdCode.cmMUL,
-                    ECmdCode.cmDIV,
-                    ECmdCode.cmPOW,
-                    ECmdCode.cmASSIGN,
-                ):
+                if code in BINARY_OPRT_CODES:
                     if code == ECmdCode.cmASSIGN and (self._syn_flags & ESynCodes.noASSIGN):
                         self._error(EErrorCodes.ecUNEXPECTED_OPERATOR, self._pos, op_str)
 
@@ -643,6 +634,7 @@ class ParserTokenReader:
             return True
         return False
 
+    # pylint: disable=protected-access
     def _is_infix_op_tok(self, tok: ParserToken) -> bool:
         end, s_tok = self._extract_token(self._parser.valid_infix_oprt_chars(), self._pos)
         if end == self._pos:
@@ -909,11 +901,10 @@ class ParserTokenReader:
                 if i == 0 or str_buf[i - 1] != "\\":
                     end_idx = i
                     break
-                else:
-                    # Escaped quote \" -> replace with "
-                    str_buf[i - 1 : i + 1] = ['"']
-                    skip += 1
-                    continue
+                # Escaped quote \" -> replace with "
+                str_buf[i - 1 : i + 1] = ['"']
+                skip += 1
+                continue
             i += 1
 
         if end_idx == -1:

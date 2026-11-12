@@ -20,6 +20,7 @@ from .definitions import (
     MaxNestingDepth,
     OprtAssociativity,
     OprtPrecedence,
+    PUBLIC_ENUMS,
     ParserVersion,
     ParserVersionDate,
     TypeCode,
@@ -30,12 +31,8 @@ from .parser import Parser, ParserBase, ParserInt, eval_expr, evaluate
 from .token_reader import ParserCallback, ParserToken, ParserTokenReader, Variable, VariableRef
 
 # Export enum members at package level for C++-style compatibility
-globals().update(ECmdCode.__members__)
-globals().update(ETypeCode.__members__)
-globals().update(EParserVersionInfo.__members__)
-globals().update(EOprtAssociativity.__members__)
-globals().update(EOprtPrecedence.__members__)
-globals().update(EErrorCodes.__members__)
+for _enum_cls in PUBLIC_ENUMS:
+    globals().update(_enum_cls.__members__)
 
 __version__ = "2.3.6"
 

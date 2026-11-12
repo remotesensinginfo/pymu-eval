@@ -6,22 +6,18 @@ Mirrors muParserBase.cpp, muParser.cpp, and muParserInt.cpp.
 
 from __future__ import annotations
 
-import copy
+# pylint: disable=too-many-lines,invalid-name,too-many-public-methods
+
 import re
 from collections.abc import Mapping
 from typing import Any, Callable, Optional, Union
 
 import numpy as np
 
-try:
-    import xarray as xr
-    HAS_XARRAY = True
-except ImportError:  # pragma: no cover
-    xr = None  # type: ignore
-    HAS_XARRAY = False
-
-from .bytecode import ParserByteCode, SToken
+from .bytecode import ParserByteCode
 from .definitions import (
+    BINARY_OPRT_CODES,
+    CMP_OPRT_CODES,
     DEFAULT_OPRT,
     ECmdCode,
     EErrorCodes,
@@ -36,11 +32,50 @@ from .definitions import (
     ParserVersionDate,
 )
 from .errors import ParserError
-from .math_impl import INT32_MAX, INT32_MIN, MathImpl, ParserIntMathImpl, is_array_like, is_xarray
+from .math_impl import (
+    HAS_XARRAY,
+    INT32_MAX,
+    INT32_MIN,
+    MathImpl,
+    ParserIntMathImpl,
+    is_array_like,
+    xr,
+)
 from .token_reader import ParserCallback, ParserToken, ParserTokenReader, VariableRef
 
+_PREC_MAP: dict[ECmdCode, int] = {
+    ECmdCode.cmEND: -5,
+    ECmdCode.cmARG_SEP: -4,
+    ECmdCode.cmASSIGN: -1,
+    ECmdCode.cmELSE: 0,
+    ECmdCode.cmIF: 0,
+    ECmdCode.cmLAND: int(EOprtPrecedence.prLAND),
+    ECmdCode.cmLOR: int(EOprtPrecedence.prLOR),
+    ECmdCode.cmADD: int(EOprtPrecedence.prADD_SUB),
+    ECmdCode.cmSUB: int(EOprtPrecedence.prADD_SUB),
+    ECmdCode.cmMUL: int(EOprtPrecedence.prMUL_DIV),
+    ECmdCode.cmDIV: int(EOprtPrecedence.prMUL_DIV),
+    ECmdCode.cmPOW: int(EOprtPrecedence.prPOW),
+}
 
-class ParserBase:
+_BINARY_EVAL_OPS: dict[ECmdCode, Callable[[Any, Any], Any]] = {
+    ECmdCode.cmADD: lambda a, b: a + b,
+    ECmdCode.cmSUB: lambda a, b: a - b,
+    ECmdCode.cmMUL: lambda a, b: a * b,
+    ECmdCode.cmDIV: MathImpl.Div,
+    ECmdCode.cmPOW: MathImpl.Pow,
+    ECmdCode.cmLE: MathImpl.LE,
+    ECmdCode.cmGE: MathImpl.GE,
+    ECmdCode.cmNEQ: MathImpl.NEQ,
+    ECmdCode.cmEQ: MathImpl.EQ,
+    ECmdCode.cmLT: MathImpl.LT,
+    ECmdCode.cmGT: MathImpl.GT,
+    ECmdCode.cmLAND: MathImpl.LAND,
+    ECmdCode.cmLOR: MathImpl.LOR,
+}
+
+
+class ParserBase:  # pylint: disable=too-many-instance-attributes
     """
     Base mathematical expressions parser engine.
     Compiles expression strings to RPN bytecode and evaluates them over scalars,
@@ -83,10 +118,12 @@ class ParserBase:
             self.set_expr(expr)
 
     def assign(self, other: ParserBase) -> ParserBase:
+        """Copy state and definitions from another parser instance."""
         if other is self:
             return self
 
         self._re_init()
+        # pylint: disable=protected-access
         self._const_def = dict(other._const_def)
         self._var_def = dict(other._var_def)
         self._built_in_op = other._built_in_op
@@ -109,10 +146,11 @@ class ParserBase:
         self._thousands_sep = other._thousands_sep
         self._var_factory = other._var_factory
         self._var_factory_data = other._var_factory_data
-        self._rpn.enable_optimizer(other._rpn._enable_optimizer)
+        self._rpn.enable_optimizer(other._rpn.is_optimizer_enabled())
         return self
 
     def copy(self) -> ParserBase:
+        """Return a shallow copy of this parser instance."""
         cls = self.__class__
         new_parser = cls.__new__(cls)
         ParserBase.__init__(new_parser)
@@ -136,47 +174,58 @@ class ParserBase:
 
     # Locale & separator configuration
     def set_dec_sep(self, dec_sep: str) -> None:
+        """Set the decimal separator character."""
         self._dec_sep = dec_sep
         self._re_init()
 
     def set_thousands_sep(self, thousands_sep: str = "") -> None:
+        """Set the thousands group separator character."""
         self._thousands_sep = thousands_sep
         self._re_init()
 
     def reset_locale(self) -> None:
+        """Reset decimal, thousands, and argument separators to defaults."""
         self._dec_sep = "."
         self._thousands_sep = ""
         self.set_arg_sep(",")
         self._re_init()
 
     def set_arg_sep(self, arg_sep: str) -> None:
+        """Set the function argument separator character."""
         self._token_reader.set_arg_sep(arg_sep)
         self._re_init()
 
     def get_arg_sep(self) -> str:
+        """Return the current function argument separator character."""
         return self._token_reader.get_arg_sep()
 
     # Character set definitions
     def define_name_chars(self, charset: str) -> None:
+        """Define valid characters for variable, constant, and function names."""
         self._name_chars = charset
 
     def define_oprt_chars(self, charset: str) -> None:
+        """Define valid characters for binary and postfix operators."""
         self._oprt_chars = charset
 
     def define_infix_oprt_chars(self, charset: str) -> None:
+        """Define valid characters for prefix/infix unary operators."""
         self._infix_oprt_chars = charset
 
     def valid_name_chars(self) -> str:
+        """Return the string of valid identifier characters."""
         if not self._name_chars:
             raise ParserError(EErrorCodes.ecINTERNAL_ERROR)
         return self._name_chars
 
     def valid_oprt_chars(self) -> str:
+        """Return the string of valid binary/postfix operator characters."""
         if not self._oprt_chars:
             raise ParserError(EErrorCodes.ecINTERNAL_ERROR)
         return self._oprt_chars
 
     def valid_infix_oprt_chars(self) -> str:
+        """Return the string of valid infix unary operator characters."""
         if not self._infix_oprt_chars:
             raise ParserError(EErrorCodes.ecINTERNAL_ERROR)
         return self._infix_oprt_chars
@@ -238,7 +287,7 @@ class ParserBase:
         self._re_init()
 
     # Definitions: functions, operators, constants, variables
-    def define_fun(
+    def define_fun(  # pylint: disable=too-many-arguments
         self,
         name: str,
         func: Optional[Callable[..., Any]],
@@ -249,6 +298,7 @@ class ParserBase:
         is_mult_str_fun: bool = False,
         is_bulk: bool = False,
     ) -> None:
+        """Register a custom mathematical or string function."""
         if is_mult_str_fun:
             cb = ParserCallback(
                 func,
@@ -283,6 +333,7 @@ class ParserBase:
         func: Optional[Callable[..., Any]],
         argc: Optional[int] = None,
     ) -> None:
+        """Register a function taking a string first parameter and optional numeric arguments."""
         self.define_fun(name, func, False, argc=argc, is_str_fun=True)
 
     def define_mult_str_fun(
@@ -290,6 +341,7 @@ class ParserBase:
         name: str,
         func: Optional[Callable[..., Any]],
     ) -> None:
+        """Register a variadic function taking a string first parameter."""
         self.define_fun(name, func, False, is_mult_str_fun=True)
 
     def define_bulk_fun(
@@ -298,9 +350,10 @@ class ParserBase:
         func: Optional[Callable[..., Any]],
         argc: Optional[int] = None,
     ) -> None:
+        """Register a bulk-mode callback function."""
         self.define_fun(name, func, False, argc=argc, is_bulk=True)
 
-    def define_fun_user_data(
+    def define_fun_user_data(  # pylint: disable=too-many-arguments
         self,
         name: str,
         func: Optional[Callable[..., Any]],
@@ -310,6 +363,7 @@ class ParserBase:
         argc: Optional[int] = None,
         is_str_fun: bool = False,
     ) -> None:
+        """Register a function callback bound with a user_data object passed as first argument."""
         if user_data is None:
             self._error(EErrorCodes.ecINVALID_FUN_PTR)
         code = ECmdCode.cmFUNC_STR if is_str_fun else ECmdCode.cmFUNC
@@ -326,9 +380,10 @@ class ParserBase:
         self._add_callback(name, cb, self._fun_def, self.valid_name_chars())
 
     def has_fun(self, name: str) -> bool:
+        """Return True if a function with the given name is registered."""
         return name in self._fun_def
 
-    def define_oprt(
+    def define_oprt(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         name: str,
         func: Optional[Callable[..., Any]],
@@ -336,6 +391,7 @@ class ParserBase:
         associativity: EOprtAssociativity = EOprtAssociativity.oaLEFT,
         allow_opt: bool = False,
     ) -> None:
+        """Register a custom binary operator."""
         if len(name) > MaxLenIdentifier:
             self._error(EErrorCodes.ecIDENTIFIER_TOO_LONG)
 
@@ -358,6 +414,7 @@ class ParserBase:
         func: Optional[Callable[..., Any]],
         allow_opt: bool = True,
     ) -> None:
+        """Register a custom unary postfix operator."""
         if len(name) > MaxLenIdentifier:
             self._error(EErrorCodes.ecIDENTIFIER_TOO_LONG)
 
@@ -377,6 +434,7 @@ class ParserBase:
         prec: int = EOprtPrecedence.prINFIX,
         allow_opt: bool = True,
     ) -> None:
+        """Register a custom unary prefix/infix operator."""
         if len(name) > MaxLenIdentifier:
             self._error(EErrorCodes.ecIDENTIFIER_TOO_LONG)
 
@@ -390,6 +448,7 @@ class ParserBase:
         self._add_callback(name, cb, self._infix_oprt_def, self.valid_infix_oprt_chars())
 
     def define_const(self, name: str, val: Any) -> None:
+        """Define a named numeric constant."""
         if len(name) > MaxLenIdentifier:
             self._error(EErrorCodes.ecIDENTIFIER_TOO_LONG)
 
@@ -398,6 +457,7 @@ class ParserBase:
         self._re_init()
 
     def define_str_const(self, name: str, val: str) -> None:
+        """Define a named string constant."""
         if name in self._str_var_def:
             self._error(EErrorCodes.ecNAME_CONFLICT)
 
@@ -407,6 +467,7 @@ class ParserBase:
         self._re_init()
 
     def define_var(self, name: str, var: Any = 0.0) -> VariableRef:
+        """Define a parser variable and return its mutable VariableRef handle."""
         if var is None:
             self._error(EErrorCodes.ecINVALID_VAR_PTR)
 
@@ -443,9 +504,7 @@ class ParserBase:
         *,
         include_coords: bool = True,
     ) -> None:
-        """
-        Define multiple variables at once from a dict/mapping or an xarray.Dataset.
-        """
+        """Define multiple variables at once from a dict/mapping or an xarray.Dataset."""
         if HAS_XARRAY and isinstance(variables, xr.Dataset):
             for k in variables.data_vars:
                 self.define_var(str(k), variables[k])
@@ -488,6 +547,7 @@ class ParserBase:
         raise KeyError(name)
 
     def set_var_factory(self, factory: Optional[Callable[..., Any]], user_data: Any = None) -> None:
+        """Register a factory callback to create variables on the fly when undefined."""
         self._var_factory = factory
         self._var_factory_data = user_data
         self._re_init()
@@ -503,42 +563,51 @@ class ParserBase:
         return VariableRef(0.0 if res is None else res, name=name)
 
     def add_val_ident(self, callback: Callable[..., Any]) -> None:
+        """Register a custom value recognition callback."""
         self._token_reader.add_val_ident(callback)
 
     # Clear & Remove methods
     def remove_var(self, name: str) -> None:
+        """Remove a defined variable by name."""
         if name in self._var_def:
             del self._var_def[name]
             self._re_init()
 
     def clear_var(self) -> None:
+        """Remove all defined variables."""
         self._var_def.clear()
         self._re_init()
 
     def clear_fun(self) -> None:
+        """Remove all registered functions."""
         self._fun_def.clear()
         self._re_init()
 
     def clear_const(self) -> None:
+        """Remove all defined numeric and string constants."""
         self._const_def.clear()
         self._str_var_def.clear()
         self._string_var_buf.clear()
         self._re_init()
 
     def clear_infix_oprt(self) -> None:
+        """Remove all registered prefix/infix unary operators."""
         self._infix_oprt_def.clear()
         self._re_init()
 
     def clear_postfix_oprt(self) -> None:
+        """Remove all registered postfix unary operators."""
         self._post_oprt_def.clear()
         self._re_init()
 
     def clear_oprt(self) -> None:
+        """Remove all registered user binary operators."""
         self._oprt_def.clear()
         self._re_init()
 
     # Query methods
     def set_expr(self, expr: str) -> None:
+        """Set the mathematical expression string to be evaluated."""
         if self._token_reader.get_arg_sep() == self._dec_sep:
             self._error(EErrorCodes.ecLOCALE)
 
@@ -549,15 +618,19 @@ class ParserBase:
         self._re_init()
 
     def get_expr(self) -> str:
+        """Return the current expression string."""
         return self._token_reader.get_expr()
 
     def get_var(self) -> dict[str, VariableRef]:
+        """Return a dictionary of all registered variable names and VariableRef objects."""
         return dict(self._var_def)
 
     def get_var_values(self) -> dict[str, Any]:
+        """Return a dictionary mapping registered variable names to their current values."""
         return {k: v.get() for k, v in self._var_def.items()}
 
     def get_used_var(self) -> dict[str, Optional[VariableRef]]:
+        """Return a dictionary of variables referenced in the current expression."""
         try:
             self._token_reader.ignore_undef_var(True)
             self._create_rpn()
@@ -570,93 +643,65 @@ class ParserBase:
         return dict(self._token_reader.get_used_var())
 
     def get_const(self) -> dict[str, Any]:
+        """Return a dictionary of all defined numeric constants."""
         return dict(self._const_def)
 
     def get_fun_def(self) -> dict[str, ParserCallback]:
+        """Return a dictionary of all registered function callbacks."""
         return dict(self._fun_def)
 
     def get_version(self, info: EParserVersionInfo = EParserVersionInfo.pviFULL) -> str:
+        """Return the parser version string."""
         if info == EParserVersionInfo.pviFULL:
             return f"{ParserVersion} ({ParserVersionDate}; 64BIT; RELEASE; UNICODE)"
         return ParserVersion
 
     def get_byte_code(self) -> ParserByteCode:
+        """Return the compiled RPN bytecode object."""
         return self._rpn
 
     def set_byte_code(self, byte_code: ParserByteCode) -> None:
+        """Restore a previously compiled RPN bytecode object."""
         self._rpn = byte_code.copy()
         expr, self._string_buf = self._rpn.restore_environment()
         self._token_reader.set_formula(expr)
         self._compiled = True
 
     def enable_optimizer(self, is_on: bool = True) -> None:
+        """Enable or disable constant folding and algebraic bytecode optimization."""
         self._rpn.enable_optimizer(is_on)
         self._re_init()
 
     def enable_built_in_oprt(self, is_on: bool = True) -> None:
+        """Enable or disable built-in binary and ternary operators."""
         self._built_in_op = is_on
         self._re_init()
 
     def has_built_in_oprt(self) -> bool:
+        """Return True if built-in operators are enabled."""
         return self._built_in_op
 
     def get_num_results(self) -> int:
+        """Return the number of comma-separated sub-expressions in the last compiled formula."""
         return self._final_result_idx
 
     # Precedence & Associativity
     def _get_oprt_precedence(self, tok: ParserToken) -> int:
         code = tok.get_code()
-        if code == ECmdCode.cmEND:
-            return -5
-        if code == ECmdCode.cmARG_SEP:
-            return -4
-        if code == ECmdCode.cmASSIGN:
-            return -1
-        if code in (ECmdCode.cmELSE, ECmdCode.cmIF):
-            return 0
-        if code == ECmdCode.cmLAND:
-            return int(EOprtPrecedence.prLAND)
-        if code == ECmdCode.cmLOR:
-            return int(EOprtPrecedence.prLOR)
-        if code in (
-            ECmdCode.cmLT,
-            ECmdCode.cmGT,
-            ECmdCode.cmLE,
-            ECmdCode.cmGE,
-            ECmdCode.cmNEQ,
-            ECmdCode.cmEQ,
-        ):
+        if code in _PREC_MAP:
+            return _PREC_MAP[code]
+        if code in CMP_OPRT_CODES:
             return int(EOprtPrecedence.prCMP)
-        if code in (ECmdCode.cmADD, ECmdCode.cmSUB):
-            return int(EOprtPrecedence.prADD_SUB)
-        if code in (ECmdCode.cmMUL, ECmdCode.cmDIV):
-            return int(EOprtPrecedence.prMUL_DIV)
-        if code == ECmdCode.cmPOW:
-            return int(EOprtPrecedence.prPOW)
         if code in (ECmdCode.cmOPRT_INFIX, ECmdCode.cmOPRT_BIN):
             return tok.get_pri()
         raise ParserError(EErrorCodes.ecINTERNAL_ERROR, 5, "")
 
     def _get_oprt_associativity(self, tok: ParserToken) -> EOprtAssociativity:
         code = tok.get_code()
-        if code in (
-            ECmdCode.cmASSIGN,
-            ECmdCode.cmLAND,
-            ECmdCode.cmLOR,
-            ECmdCode.cmLT,
-            ECmdCode.cmGT,
-            ECmdCode.cmLE,
-            ECmdCode.cmGE,
-            ECmdCode.cmNEQ,
-            ECmdCode.cmEQ,
-            ECmdCode.cmADD,
-            ECmdCode.cmSUB,
-            ECmdCode.cmMUL,
-            ECmdCode.cmDIV,
-        ):
-            return EOprtAssociativity.oaLEFT
         if code == ECmdCode.cmPOW:
             return EOprtAssociativity.oaRIGHT
+        if code in BINARY_OPRT_CODES:
+            return EOprtAssociativity.oaLEFT
         if code == ECmdCode.cmOPRT_BIN:
             return tok.get_associativity()
         return EOprtAssociativity.oaNONE
@@ -721,7 +766,7 @@ class ParserBase:
         self._rpn.add_mult_str_fun(cb, len(args) - 1, args[-1].get_idx())
         return val_tok
 
-    def _apply_func(
+    def _apply_func(  # pylint: disable=too-many-branches
         self,
         st_opt: list[ParserToken],
         st_val: list[ParserToken],
@@ -734,9 +779,11 @@ class ParserBase:
         cb = fun_tok.get_func_addr()
         assert cb is not None
 
-        i_arg_count = fun_tok.get_arg_count() if fun_tok.get_code() == ECmdCode.cmOPRT_BIN else arg_count
-        i_arg_required = fun_tok.get_arg_count() + (1 if fun_tok.get_type() == ETypeCode.tpSTR else 0)
-        i_arg_numerical = i_arg_count - (1 if fun_tok.get_type() == ETypeCode.tpSTR else 0)
+        is_bin_op = fun_tok.get_code() == ECmdCode.cmOPRT_BIN
+        is_str_tp = fun_tok.get_type() == ETypeCode.tpSTR
+        i_arg_count = fun_tok.get_arg_count() if is_bin_op else arg_count
+        i_arg_required = fun_tok.get_arg_count() + (1 if is_str_tp else 0)
+        i_arg_numerical = i_arg_count - (1 if is_str_tp else 0)
 
         if fun_tok.get_code() == ECmdCode.cmFUNC_STR and i_arg_count - i_arg_numerical > 1:
             self._error(EErrorCodes.ecINTERNAL_ERROR)
@@ -898,23 +945,9 @@ class ParserBase:
     def _apply_remaining_oprt(self, st_opt: list[ParserToken], st_val: list[ParserToken]) -> None:
         while st_opt and st_opt[-1].get_code() not in (ECmdCode.cmBO, ECmdCode.cmIF):
             code = st_opt[-1].get_code()
-            if code in (
+            if code in BINARY_OPRT_CODES or code in (
                 ECmdCode.cmOPRT_INFIX,
                 ECmdCode.cmOPRT_BIN,
-                ECmdCode.cmLE,
-                ECmdCode.cmGE,
-                ECmdCode.cmNEQ,
-                ECmdCode.cmEQ,
-                ECmdCode.cmLT,
-                ECmdCode.cmGT,
-                ECmdCode.cmADD,
-                ECmdCode.cmSUB,
-                ECmdCode.cmMUL,
-                ECmdCode.cmDIV,
-                ECmdCode.cmPOW,
-                ECmdCode.cmLAND,
-                ECmdCode.cmLOR,
-                ECmdCode.cmASSIGN,
             ):
                 if code == ECmdCode.cmOPRT_INFIX:
                     self._apply_func(st_opt, st_val, 1)
@@ -925,7 +958,7 @@ class ParserBase:
             else:
                 self._error(EErrorCodes.ecINTERNAL_ERROR)
 
-    def _create_rpn(self) -> None:
+    def _create_rpn(self) -> None:  # pylint: disable=too-many-branches,too-many-statements
         if not self._token_reader.get_expr():
             self._error(EErrorCodes.ecUNEXPECTED_EOF, 0)
 
@@ -1013,29 +1046,13 @@ class ParserBase:
 
                     if (
                         st_opt
-                        and st_opt[-1].get_code() not in (ECmdCode.cmOPRT_INFIX, ECmdCode.cmOPRT_BIN)
+                        and st_opt[-1].get_code()
+                        not in (ECmdCode.cmOPRT_INFIX, ECmdCode.cmOPRT_BIN)
                         and st_opt[-1].get_func_addr() is not None
                     ):
                         self._apply_func(st_opt, st_val, arg_count)
 
-            elif code in (
-                ECmdCode.cmIF,
-                ECmdCode.cmLAND,
-                ECmdCode.cmLOR,
-                ECmdCode.cmLT,
-                ECmdCode.cmGT,
-                ECmdCode.cmLE,
-                ECmdCode.cmGE,
-                ECmdCode.cmNEQ,
-                ECmdCode.cmEQ,
-                ECmdCode.cmADD,
-                ECmdCode.cmSUB,
-                ECmdCode.cmMUL,
-                ECmdCode.cmDIV,
-                ECmdCode.cmPOW,
-                ECmdCode.cmASSIGN,
-                ECmdCode.cmOPRT_BIN,
-            ):
+            elif code in BINARY_OPRT_CODES or code in (ECmdCode.cmIF, ECmdCode.cmOPRT_BIN):
                 if code == ECmdCode.cmIF:
                     if_else_counter += 1
                     if if_else_counter > MaxNestingDepth:
@@ -1113,7 +1130,16 @@ class ParserBase:
         self._rpn.store_environment(self._token_reader.get_expr(), self._string_buf)
         self._compiled = True
 
-    def _parse_cmd_code_bulk(self, offset: Optional[int] = None, thread_id: int = 0) -> Any:
+    @staticmethod
+    def _load_var_buf(tok: Any, offset: Optional[int]) -> Any:
+        if tok.ptr is None:
+            raise ParserError(EErrorCodes.ecINVALID_VAR_PTR)
+        val = tok.ptr.get()
+        return val[offset] if offset is not None else val
+
+    def _parse_cmd_code_bulk(  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
+        self, offset: Optional[int] = None, thread_id: int = 0
+    ) -> Any:
         rpn = self._rpn.get_base()
         stack: list[Any] = []
         cond_stack: list[list[Any]] = []
@@ -1129,136 +1155,24 @@ class ParserBase:
 
             if cmd == ECmdCode.cmVAL:
                 stack.append(tok.data2)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmVAR:
-                if tok.ptr is None:
-                    raise ParserError(EErrorCodes.ecINVALID_VAR_PTR)
-                val = tok.ptr.get()
-                stack.append(val[offset] if offset is not None else val)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmVARPOW2:
-                if tok.ptr is None:
-                    raise ParserError(EErrorCodes.ecINVALID_VAR_PTR)
-                buf = tok.ptr.get()
-                if offset is not None:
-                    buf = buf[offset]
+            elif cmd == ECmdCode.cmVAR:
+                stack.append(self._load_var_buf(tok, offset))
+            elif cmd == ECmdCode.cmVARPOW2:
+                buf = self._load_var_buf(tok, offset)
                 stack.append(buf * buf)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmVARPOW3:
-                if tok.ptr is None:
-                    raise ParserError(EErrorCodes.ecINVALID_VAR_PTR)
-                buf = tok.ptr.get()
-                if offset is not None:
-                    buf = buf[offset]
+            elif cmd == ECmdCode.cmVARPOW3:
+                buf = self._load_var_buf(tok, offset)
                 stack.append(buf * buf * buf)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmVARPOW4:
-                if tok.ptr is None:
-                    raise ParserError(EErrorCodes.ecINVALID_VAR_PTR)
-                buf = tok.ptr.get()
-                if offset is not None:
-                    buf = buf[offset]
+            elif cmd == ECmdCode.cmVARPOW4:
+                buf = self._load_var_buf(tok, offset)
                 stack.append(buf * buf * buf * buf)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmVARMUL:
-                if tok.ptr is None:
-                    raise ParserError(EErrorCodes.ecINVALID_VAR_PTR)
-                buf = tok.ptr.get()
-                if offset is not None:
-                    buf = buf[offset]
+            elif cmd == ECmdCode.cmVARMUL:
+                buf = self._load_var_buf(tok, offset)
                 stack.append(buf * tok.data + tok.data2)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmADD:
+            elif cmd in _BINARY_EVAL_OPS:
                 rhs = stack.pop()
-                stack[-1] = stack[-1] + rhs
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmSUB:
-                rhs = stack.pop()
-                stack[-1] = stack[-1] - rhs
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmMUL:
-                rhs = stack.pop()
-                stack[-1] = stack[-1] * rhs
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmDIV:
-                rhs = stack.pop()
-                stack[-1] = MathImpl.Div(stack[-1], rhs)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmPOW:
-                rhs = stack.pop()
-                stack[-1] = MathImpl.Pow(stack[-1], rhs)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmLE:
-                rhs = stack.pop()
-                stack[-1] = MathImpl.LE(stack[-1], rhs)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmGE:
-                rhs = stack.pop()
-                stack[-1] = MathImpl.GE(stack[-1], rhs)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmNEQ:
-                rhs = stack.pop()
-                stack[-1] = MathImpl.NEQ(stack[-1], rhs)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmEQ:
-                rhs = stack.pop()
-                stack[-1] = MathImpl.EQ(stack[-1], rhs)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmLT:
-                rhs = stack.pop()
-                stack[-1] = MathImpl.LT(stack[-1], rhs)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmGT:
-                rhs = stack.pop()
-                stack[-1] = MathImpl.GT(stack[-1], rhs)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmLAND:
-                rhs = stack.pop()
-                stack[-1] = MathImpl.LAND(stack[-1], rhs)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmLOR:
-                rhs = stack.pop()
-                stack[-1] = MathImpl.LOR(stack[-1], rhs)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmASSIGN:
+                stack[-1] = _BINARY_EVAL_OPS[cmd](stack[-1], rhs)
+            elif cmd == ECmdCode.cmASSIGN:
                 rhs = stack.pop()
                 stack.pop()  # lhs variable value
                 if tok.ptr is None:
@@ -1268,43 +1182,29 @@ class ParserBase:
                 else:
                     tok.ptr.set(rhs)
                 stack.append(rhs)
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmIF:
+            elif cmd == ECmdCode.cmIF:
                 cond = stack.pop()
                 if is_array_like(cond):
                     cond_stack.append(["array", cond, None])
-                    pc += 1
+                elif cond == 0:
+                    cond_stack.append(["scalar_false"])
+                    pc += tok.offset + 1
+                    continue
                 else:
-                    if cond == 0:
-                        cond_stack.append(["scalar_false"])
-                        pc += tok.offset + 1
-                    else:
-                        cond_stack.append(["scalar_true"])
-                        pc += 1
-                continue
-
-            if cmd == ECmdCode.cmELSE:
+                    cond_stack.append(["scalar_true"])
+            elif cmd == ECmdCode.cmELSE:
                 if cond_stack and cond_stack[-1][0] == "array":
                     cond_stack[-1][2] = stack.pop()
-                    pc += 1
                 else:
                     pc += tok.offset
-                continue
-
-            if cmd == ECmdCode.cmENDIF:
+                    continue
+            elif cmd == ECmdCode.cmENDIF:
                 if cond_stack:
                     entry = cond_stack.pop()
                     if entry[0] == "array":
                         else_val = stack.pop()
-                        then_val = entry[2]
-                        cond = entry[1]
-                        stack.append(MathImpl.Where(cond, then_val, else_val))
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmFUNC:
+                        stack.append(MathImpl.Where(entry[1], entry[2], else_val))
+            elif cmd == ECmdCode.cmFUNC:
                 cb = tok.cb
                 assert cb is not None
                 argc = tok.argc
@@ -1319,10 +1219,7 @@ class ParserBase:
                     args = stack[-n_args:]
                     del stack[-n_args:]
                     stack.append(cb.call_multfun(args))
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmFUNC_STR:
+            elif cmd == ECmdCode.cmFUNC_STR:
                 cb = tok.cb
                 assert cb is not None
                 idx_stack = tok.idx
@@ -1341,10 +1238,7 @@ class ParserBase:
                     args = stack[-n_args:]
                     del stack[-n_args:]
                     stack.append(cb.call_strfun(str_arg, *args))
-                pc += 1
-                continue
-
-            if cmd == ECmdCode.cmFUNC_BULK:
+            elif cmd == ECmdCode.cmFUNC_BULK:
                 cb = tok.cb
                 assert cb is not None
                 argc = tok.argc
@@ -1355,10 +1249,10 @@ class ParserBase:
                     args = stack[-argc:]
                     del stack[-argc:]
                     stack.append(cb.call_bulkfun(bulk_offset, thread_id, *args))
-                pc += 1
-                continue
+            else:
+                raise ParserError(EErrorCodes.ecINTERNAL_ERROR, 3, "")
 
-            raise ParserError(EErrorCodes.ecINTERNAL_ERROR, 3, "")
+            pc += 1
 
         self._stack_buffer = stack
         return stack[self._final_result_idx - 1]
@@ -1371,7 +1265,7 @@ class ParserBase:
             exc.set_formula(self._token_reader.get_expr())
             raise
 
-    def eval(
+    def eval(  # pylint: disable=too-many-branches
         self,
         data: Optional[Union[Mapping[str, Any], list[Any], np.ndarray, Any]] = None,
         bulk_size: Optional[int] = None,
@@ -1408,7 +1302,8 @@ class ParserBase:
                     self.set_var(str(k), v)
             else:
                 raise TypeError(
-                    f"data must be a Mapping or xarray.Dataset (or pass bulk_size for bulk mode), got {type(data).__name__}"
+                    "data must be a Mapping or xarray.Dataset (or pass bulk_size for bulk mode), "
+                    f"got {type(data).__name__}"
                 )
 
         if variables:
@@ -1505,7 +1400,7 @@ class Parser(ParserBase):
             self.set_expr(expr)
 
     def _is_val(self, formula: str, pos: int) -> tuple[bool, int, Any]:
-        """Default floating-point value recognizer supporting custom decimal and thousands separators."""
+        """Default float value recognizer supporting custom decimal/thousands separators."""
         substr = formula[pos:]
         if not substr:
             return False, pos, 0.0
@@ -1540,6 +1435,7 @@ class Parser(ParserBase):
         return True, pos + len(matched_str), val
 
     def init_char_sets(self) -> None:
+        """Initialize default valid character sets for names and operators."""
         self.define_name_chars("0123456789_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
         self.define_oprt_chars(
             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+-*^/?<>=#!$%&|~'_{}"
@@ -1547,6 +1443,7 @@ class Parser(ParserBase):
         self.define_infix_oprt_chars("/+-*^?<>=#!$%&|~'_")
 
     def init_fun(self) -> None:
+        """Register standard built-in mathematical functions."""
         # Trigonometric functions
         self.define_fun("sin", MathImpl.Sin, argc=1)
         self.define_fun("cos", MathImpl.Cos, argc=1)
@@ -1586,10 +1483,12 @@ class Parser(ParserBase):
         self.define_fun("rnd", MathImpl.Rnd, allow_opt=False, argc=0)
 
     def init_const(self) -> None:
+        """Register standard mathematical constants (_pi and _e)."""
         self.define_const("_pi", MathImpl.CONST_PI)
         self.define_const("_e", MathImpl.CONST_E)
 
     def init_oprt(self) -> None:
+        """Register standard unary prefix operators (- and +)."""
         self.define_infix_oprt("-", MathImpl.UnaryMinus)
         self.define_infix_oprt("+", MathImpl.UnaryPlus)
 
@@ -1710,14 +1609,16 @@ class ParserInt(ParserBase):
         return True, pos + 1 + len(bin_digits), float(val)
 
     def init_char_sets(self) -> None:
+        """Initialize valid character sets for integer parser."""
         self.define_name_chars("0123456789_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
         self.define_oprt_chars("+-*^/?<>=!%&|~'_")
         self.define_infix_oprt_chars("/+-*^?<>=!%&|~'_")
 
     def init_const(self) -> None:
-        pass
+        """Initialize integer constants (none by default)."""
 
     def init_fun(self) -> None:
+        """Register built-in integer functions."""
         self.define_fun("sign", ParserIntMathImpl.Sign, argc=1)
         self.define_fun("abs", ParserIntMathImpl.Abs, argc=1)
         self.define_fun("if", ParserIntMathImpl.Ite, argc=3)
@@ -1726,6 +1627,7 @@ class ParserInt(ParserBase):
         self.define_fun("max", ParserIntMathImpl.Max, argc=-1)
 
     def init_oprt(self) -> None:
+        """Register integer arithmetic, bitwise, and logical operators."""
         self.enable_built_in_oprt(False)
 
         self.define_infix_oprt("-", ParserIntMathImpl.UnaryMinus)
@@ -1751,7 +1653,12 @@ class ParserInt(ParserBase):
         self.define_oprt("/", ParserIntMathImpl.Div, EOprtPrecedence.prMUL_DIV)
         self.define_oprt("%", ParserIntMathImpl.Mod, EOprtPrecedence.prMUL_DIV)
 
-        self.define_oprt("^", ParserIntMathImpl.Pow, EOprtPrecedence.prPOW, EOprtAssociativity.oaRIGHT)
+        self.define_oprt(
+            "^",
+            ParserIntMathImpl.Pow,
+            EOprtPrecedence.prPOW,
+            EOprtAssociativity.oaRIGHT,
+        )
         self.define_oprt(">>", ParserIntMathImpl.Shr, int(EOprtPrecedence.prMUL_DIV) + 1)
         self.define_oprt("<<", ParserIntMathImpl.Shl, int(EOprtPrecedence.prMUL_DIV) + 1)
 

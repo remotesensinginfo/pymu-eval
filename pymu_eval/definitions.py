@@ -3,6 +3,8 @@ Standard definitions, enums, and constants for pymu-eval.
 Mirrors muParserDef.h and muParserTokenReader.h from the C++ muParser library.
 """
 
+# pylint: disable=invalid-name
+
 from enum import IntEnum, IntFlag
 
 MaxLenExpression: int = 20000
@@ -32,6 +34,10 @@ DEFAULT_OPRT: tuple[str, ...] = (
     "?",
     ":",
 )
+
+BINARY_OPRT_CODES: frozenset[int] = frozenset(range(14))  # cmLE (0) .. cmASSIGN (13)
+CMP_OPRT_CODES: frozenset[int] = frozenset(range(6))      # cmLE (0) .. cmGT (5)
+ARITH_OPRT_CODES: frozenset[int] = frozenset(range(6, 11))  # cmADD (6) .. cmPOW (10)
 
 
 class ECmdCode(IntEnum):
@@ -207,10 +213,15 @@ OprtAssociativity = EOprtAssociativity
 OprtPrecedence = EOprtPrecedence
 ErrorCode = EErrorCodes
 
+PUBLIC_ENUMS = (
+    ECmdCode,
+    ETypeCode,
+    EParserVersionInfo,
+    EOprtAssociativity,
+    EOprtPrecedence,
+    EErrorCodes,
+)
+
 # Export individual enum members at module level for C++ style access
-globals().update(ECmdCode.__members__)
-globals().update(ETypeCode.__members__)
-globals().update(EParserVersionInfo.__members__)
-globals().update(EOprtAssociativity.__members__)
-globals().update(EOprtPrecedence.__members__)
-globals().update(EErrorCodes.__members__)
+for _enum_cls in PUBLIC_ENUMS:
+    globals().update(_enum_cls.__members__)
