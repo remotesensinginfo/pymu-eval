@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pymu-eval"
-version = "2.3.6"
+version = "0.0.1"
 description = "Python implementation of muParser math syntax parser with NumPy and xarray support"
 readme = "README.md"
 requires-python = ">=3.9"
