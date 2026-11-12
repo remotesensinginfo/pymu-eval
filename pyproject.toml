@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pymu-eval"
+version = "2.3.6"
+description = "Python implementation of muParser math syntax parser with NumPy and xarray support"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "BSD-2-Clause" }
+dependencies = [
+    "numpy>=1.20",
+    "xarray>=2022.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+]
+docs = [
+    "sphinx>=7.0",
+    "sphinx-rtd-theme>=2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-v"
