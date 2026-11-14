@@ -55,8 +55,12 @@ make -C docs html
 
 ```bash
 pip install pymu-eval
-# or from a local checkout:
+# With optional xarray support:
+pip install "pymu-eval[xarray]"
+
+# Or from a local checkout:
 pip install -e .
+pip install -e ".[xarray]"
 ```
 
 ## Quick Start

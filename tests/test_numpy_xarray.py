@@ -3,11 +3,19 @@ Pytest test suite for evaluating muParser mathematical expressions
 using NumPy ndarrays, xarray DataArrays, and xarray Datasets.
 """
 
+from __future__ import annotations
+
 import numpy as np
 import pytest
-import xarray as xr
+
+try:
+    import xarray as xr
+except ImportError:
+    xr = None  # type: ignore[assignment]
 
 import pymu_eval as mu
+import pymu_eval.math_impl as math_impl_mod
+import pymu_eval.parser as parser_mod
 from pymu_eval import Parser, ParserError, ParserInt, eval_expr, evaluate
 
 
@@ -150,12 +158,35 @@ class TestNumPyEvaluation:
         deriv = p.diff("x", x)
         np.testing.assert_allclose(deriv, np.cos(x) + 2 * x, rtol=1e-5, atol=1e-6)
 
+    def test_numpy_works_without_xarray(self, monkeypatch):
+        monkeypatch.setattr(math_impl_mod, "HAS_XARRAY", False)
+        monkeypatch.setattr(math_impl_mod, "xr", None)
+        monkeypatch.setattr(parser_mod, "HAS_XARRAY", False)
+        monkeypatch.setattr(parser_mod, "xr", None)
+
+        a = np.array([-1.0, 0.0, 2.0, 4.0])
+        b = np.array([10.0, 20.0, 30.0, 40.0])
+
+        assert not math_impl_mod.is_xarray(a)
+        assert math_impl_mod.is_array_like(a)
+
+        res = eval_expr("a > 0 ? a * b : -b", a=a, b=b)
+        np.testing.assert_allclose(res, np.where(a > 0, a * b, -b))
+
+        p_int = ParserInt("a > 0 ? 1 : 0")
+        p_int.define_var("a", a)
+        np.testing.assert_allclose(p_int.eval(), np.array([0, 0, 1, 1]))
+
+        with pytest.raises(TypeError):
+            Parser("a + 1").eval(object())
+
 
 # ===========================================================================
 # xarray DataArray & Dataset Tests
 # ===========================================================================
 
 
+@pytest.mark.skipif(xr is None, reason="xarray is not installed")
 class TestXarrayEvaluation:
     @pytest.fixture
     def sample_dataset(self) -> xr.Dataset:
