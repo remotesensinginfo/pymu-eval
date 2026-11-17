@@ -49,5 +49,5 @@ try:
 except ImportError:
     html_theme = "alabaster"
 
-html_static_path = ["_static"]
+html_static_path = []
 html_title = f"pymu-eval {release} Documentation"
