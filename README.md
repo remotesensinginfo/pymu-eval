@@ -4,8 +4,10 @@ A pure-Python implementation of the [muParser](https://github.com/beltoforion/mu
 
 ## Documentation & Examples
 
-The documentation is built with **Sphinx** and configured for **Read the Docs** via [.readthedocs.yaml](.readthedocs.yaml) and [docs/conf.py](docs/conf.py):
+The [documentation](https://pymu-eval.readthedocs.io) is built with **Sphinx** and configured for **Read the Docs** via [.readthedocs.yaml](.readthedocs.yaml) and [docs/conf.py](docs/conf.py):
 
+- **Read the Docs**?
+  - You can access an online version of the docs here: [https://pymu-eval.readthedocs.io](https://pymu-eval.readthedocs.io)
 - **Sphinx Documentation Sources (`docs/`)**:
   - [docs/index.rst](docs/index.rst) ([Markdown version](docs/index.md)): Documentation overview & quick start
   - [docs/syntax_guide.rst](docs/syntax_guide.rst) ([Markdown version](docs/syntax_guide.md)): Operators, precedence, built-in functions, conditionals, and integer mode
