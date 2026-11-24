@@ -98,6 +98,9 @@ class ParserBase:  # pylint: disable=too-many-instance-attributes
         self._const_def: dict[str, Any] = {}
         self._str_var_def: dict[str, int] = {}
         self._var_def: dict[str, VariableRef] = {}
+        # Names of variables that were bound automatically from xarray coordinates.
+        # These are refreshed whenever a new Dataset is bound, unlike user variables.
+        self._coord_var_names: set[str] = set()
         self._built_in_op: bool = True
         self._name_chars: str = ""
         self._oprt_chars: str = ""
@@ -126,6 +129,7 @@ class ParserBase:  # pylint: disable=too-many-instance-attributes
         # pylint: disable=protected-access
         self._const_def = dict(other._const_def)
         self._var_def = dict(other._var_def)
+        self._coord_var_names = set(other._coord_var_names)
         self._built_in_op = other._built_in_op
         self._string_buf = list(other._string_buf)
         self._stack_buffer = list(other._stack_buffer)
@@ -478,6 +482,8 @@ class ParserBase:  # pylint: disable=too-many-instance-attributes
             self._error(EErrorCodes.ecNAME_CONFLICT)
 
         self._check_name(name, self.valid_name_chars())
+        # An explicit definition takes ownership away from automatic coordinate binding.
+        self._coord_var_names.discard(name)
 
         if isinstance(var, VariableRef):
             var_ref = var
@@ -506,20 +512,42 @@ class ParserBase:  # pylint: disable=too-many-instance-attributes
     ) -> None:
         """Define multiple variables at once from a dict/mapping or an xarray.Dataset."""
         if HAS_XARRAY and isinstance(variables, xr.Dataset):
-            for k in variables.data_vars:
-                self.define_var(str(k), variables[k])
-            if include_coords:
-                for k in variables.coords:
-                    if str(k) not in self._var_def and str(k) not in self._const_def:
-                        try:
-                            self.define_var(str(k), variables.coords[k])
-                        except ParserError:
-                            pass
+            self._bind_dataset(variables, include_coords, self.define_var)
         elif isinstance(variables, Mapping):
             for k, v in variables.items():
                 self.define_var(str(k), v)
         else:
             raise TypeError(f"Expected Mapping or xarray.Dataset, got {type(variables).__name__}")
+
+    def _bind_dataset(
+        self,
+        dataset: Any,
+        include_coords: bool,
+        setter: Callable[[str, Any], Any],
+    ) -> None:
+        """Bind a Dataset's data_vars and (optionally) coords as parser variables.
+
+        Coordinates never override user-defined variables or constants, but coordinates
+        bound from a previous Dataset are refreshed so a reused parser does not keep
+        stale coordinate values.
+        """
+        for k in dataset.data_vars:
+            name = str(k)
+            setter(name, dataset[k])
+            self._coord_var_names.discard(name)
+        if not include_coords:
+            return
+        for k in dataset.coords:
+            name = str(k)
+            if name in self._const_def:
+                continue
+            if name in self._var_def and name not in self._coord_var_names:
+                continue
+            try:
+                setter(name, dataset.coords[k])
+            except ParserError:
+                continue
+            self._coord_var_names.add(name)
 
     def define_dataset(self, dataset: Any, include_coords: bool = True) -> None:
         """Bind all data_vars (and optionally coords) of an xarray.Dataset as parser variables."""
@@ -528,6 +556,7 @@ class ParserBase:  # pylint: disable=too-many-instance-attributes
     def set_var(self, name: str, val: Any) -> None:
         """Update a variable's value (defining it if not yet defined)."""
         if name in self._var_def:
+            self._coord_var_names.discard(name)
             was_array = is_array_like(self._var_def[name].get())
             now_array = is_array_like(val)
             self._var_def[name].set(val)
@@ -571,11 +600,13 @@ class ParserBase:  # pylint: disable=too-many-instance-attributes
         """Remove a defined variable by name."""
         if name in self._var_def:
             del self._var_def[name]
+            self._coord_var_names.discard(name)
             self._re_init()
 
     def clear_var(self) -> None:
         """Remove all defined variables."""
         self._var_def.clear()
+        self._coord_var_names.clear()
         self._re_init()
 
     def clear_fun(self) -> None:
@@ -664,6 +695,7 @@ class ParserBase:  # pylint: disable=too-many-instance-attributes
         """Restore a previously compiled RPN bytecode object."""
         self._rpn = byte_code.copy()
         expr, self._string_buf = self._rpn.restore_environment()
+        self._final_result_idx = self._rpn.get_num_results()
         self._token_reader.set_formula(expr)
         self._compiled = True
 
@@ -1128,6 +1160,7 @@ class ParserBase:  # pylint: disable=too-many-instance-attributes
                 self._error(EErrorCodes.ecSTR_RESULT)
 
         self._rpn.store_environment(self._token_reader.get_expr(), self._string_buf)
+        self._rpn.set_num_results(self._final_result_idx)
         self._compiled = True
 
     @staticmethod
@@ -1289,14 +1322,7 @@ class ParserBase:  # pylint: disable=too-many-instance-attributes
 
         if data is not None:
             if HAS_XARRAY and isinstance(data, xr.Dataset):
-                for k in data.data_vars:
-                    self.set_var(str(k), data[k])
-                for k in data.coords:
-                    if str(k) not in self._var_def and str(k) not in self._const_def:
-                        try:
-                            self.set_var(str(k), data.coords[k])
-                        except ParserError:
-                            pass
+                self._bind_dataset(data, True, self.set_var)
             elif isinstance(data, Mapping):
                 for k, v in data.items():
                     self.set_var(str(k), v)

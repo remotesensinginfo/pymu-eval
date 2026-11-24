@@ -119,9 +119,15 @@ class EOprtPrecedence(IntEnum):
     prMUL_DIV = 7   # multiplication / division
     prPOW = 8       # power operator priority (highest)
 
-    # infix / postfix operators
-    prINFIX = 7     # Signs have a higher priority than ADD_SUB, but lower than power operator
-    prPOSTFIX = 7   # Postfix operator priority
+
+# Infix / postfix operator precedences. In C++ these are enumerators sharing the value 7
+# with prMUL_DIV. In a Python IntEnum duplicate values become aliases (so
+# ``EOprtPrecedence.prINFIX.name`` would report ``"prMUL_DIV"``), so they are defined as
+# plain ints and attached to the enum class to keep ``EOprtPrecedence.prINFIX`` working.
+prINFIX: int = 7    # Signs have a higher priority than ADD_SUB, but lower than power operator
+prPOSTFIX: int = 7  # Postfix operator priority
+EOprtPrecedence.prINFIX = prINFIX  # type: ignore[attr-defined]
+EOprtPrecedence.prPOSTFIX = prPOSTFIX  # type: ignore[attr-defined]
 
 
 class ESynCodes(IntFlag):

@@ -46,6 +46,19 @@ def _is_any_array(*vals: Any) -> bool:
     return any(is_xarray(v) or isinstance(v, np.ndarray) for v in vals)
 
 
+def _any_true(val: Any) -> bool:
+    """Return True if any element of a boolean scalar/ndarray/DataArray/Dataset is True."""
+    if HAS_XARRAY and isinstance(val, xr.Dataset):
+        return any(bool(val[k].any()) for k in val.data_vars)
+    return bool(np.any(val))
+
+
+def _wrap_int32(val: Any) -> Any:
+    """Wrap integer array values to the signed 32-bit range (two's complement)."""
+    wrapped = val & 0xFFFFFFFF
+    return wrapped - ((wrapped >> 31) & 1) * 0x100000000
+
+
 def _to_scalar_or_keep(val: Any, was_scalar: bool) -> Any:
     """Convert 0-d numpy output back to Python float if input was scalar."""
     if was_scalar and not is_xarray(val) and not isinstance(val, np.ndarray):
@@ -273,7 +286,8 @@ class MathImpl:
         res = args[0]
         for a in args[1:]:
             if not _is_any_array(res, a):
-                res = res if res < a else a
+                # Match np.minimum: NaN propagates
+                res = float(np.minimum(float(res), float(a)))
             else:
                 res = np.minimum(res, a)
         return res
@@ -286,7 +300,8 @@ class MathImpl:
         res = args[0]
         for a in args[1:]:
             if not _is_any_array(res, a):
-                res = res if res > a else a
+                # Match np.maximum: NaN propagates
+                res = float(np.maximum(float(res), float(a)))
             else:
                 res = np.maximum(res, a)
         return res
@@ -378,7 +393,13 @@ class ParserIntMathImpl:
     def Round(v: Any) -> Any:
         """Round v to signed 32-bit integer."""
         if _is_any_array(v):
-            r = np.where(v >= 0, v + 0.5, v - 0.5)
+            # Use ufuncs only so xarray objects keep their coords/attrs
+            with np.errstate(invalid="ignore"):
+                if _any_true(~np.isfinite(v)):
+                    raise ParserError(EErrorCodes.ecDOMAIN_ERROR)
+                r = np.trunc(v + np.copysign(0.5, v))
+                if _any_true(r < INT32_MIN) or _any_true(r > INT32_MAX):
+                    raise ParserError(EErrorCodes.ecDOMAIN_ERROR)
             return r.astype(np.int64)
         vf = float(v)
         if math.isnan(vf) or math.isinf(vf):
@@ -453,7 +474,7 @@ class ParserIntMathImpl:
         """Integer division truncating toward zero."""
         r1, r2 = cls.Round(v1), cls.Round(v2)
         if _is_any_array(r1, r2):
-            if np.any(r2 == 0):
+            if _any_true(r2 == 0):
                 raise ParserError(EErrorCodes.ecDIV_BY_ZERO)
             return np.trunc(r1 / r2).astype(np.int64)
         if r2 == 0:
@@ -468,7 +489,7 @@ class ParserIntMathImpl:
         """Integer modulo matching C++ remainder semantics."""
         r1, r2 = cls.Round(v1), cls.Round(v2)
         if _is_any_array(r1, r2):
-            if np.any(r2 == 0):
+            if _any_true(r2 == 0):
                 raise ParserError(EErrorCodes.ecDIV_BY_ZERO)
             return np.fmod(r1, r2)
         if r2 == 0:
@@ -482,25 +503,23 @@ class ParserIntMathImpl:
         """Integer right bit-shift."""
         r1, shift = cls.Round(v1), cls.Round(v2)
         if _is_any_array(r1, shift):
-            if np.any((shift < 0) | (shift >= 32)):
+            if _any_true((shift < 0) | (shift >= 32)):
                 raise ParserError(EErrorCodes.ecDOMAIN_ERROR)
             return r1 >> shift
         if shift < 0 or shift >= 32:
             raise ParserError(EErrorCodes.ecDOMAIN_ERROR)
-        # Unsigned 32-bit shift right then cast to signed 32-bit int
-        u = (r1 & 0xFFFFFFFF) >> shift
-        if u & 0x80000000:
-            u -= 0x100000000
-        return float(u)
+        # Arithmetic (sign-preserving) shift, as for a signed 32-bit int in C++
+        return float(r1 >> shift)
 
     @classmethod
     def Shl(cls, v1: Any, v2: Any) -> Any:
         """Integer left bit-shift."""
         r1, shift = cls.Round(v1), cls.Round(v2)
         if _is_any_array(r1, shift):
-            if np.any((shift < 0) | (shift >= 32)):
+            if _any_true((shift < 0) | (shift >= 32)):
                 raise ParserError(EErrorCodes.ecDOMAIN_ERROR)
-            return r1 << shift
+            # Wrap to signed 32-bit, matching the scalar path
+            return _wrap_int32(r1 << shift)
         if shift < 0 or shift >= 32:
             raise ParserError(EErrorCodes.ecDOMAIN_ERROR)
         u = ((r1 & 0xFFFFFFFF) << shift) & 0xFFFFFFFF
@@ -601,7 +620,8 @@ class ParserIntMathImpl:
         """Integer power."""
         r1, r2 = cls.Round(v1), cls.Round(v2)
         if _is_any_array(r1, r2):
-            return np.power(r1, r2)
+            with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+                return np.power(r1 * 1.0, r2)
         return float(math.pow(float(r1), float(r2)))
 
     @classmethod

@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pymu-eval"
-version = "0.0.3"
+dynamic = ["version"]
 description = "Python implementation of muParser math syntax parser with NumPy and xarray support"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 dependencies = [
     "numpy>=1.20",
@@ -25,6 +25,12 @@ docs = [
     "sphinx-rtd-theme>=2.0",
     "xarray>=2022.0",
 ]
+
+[tool.setuptools.packages.find]
+include = ["pymu_eval*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "pymu_eval.__version__" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

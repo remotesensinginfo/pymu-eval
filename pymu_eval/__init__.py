@@ -24,6 +24,8 @@ from .definitions import (
     ParserVersion,
     ParserVersionDate,
     TypeCode,
+    prINFIX,
+    prPOSTFIX,
 )
 from .errors import ERROR_MESSAGES, ParserError
 from .math_impl import MathImpl, ParserIntMathImpl
@@ -34,7 +36,7 @@ from .token_reader import ParserCallback, ParserToken, ParserTokenReader, Variab
 for _enum_cls in PUBLIC_ENUMS:
     globals().update(_enum_cls.__members__)
 
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 
 __all__ = [
     "Parser",

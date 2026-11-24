@@ -10,7 +10,7 @@ from .definitions import EErrorCodes
 
 ERROR_MESSAGES: dict[EErrorCodes, str] = {
     EErrorCodes.ecUNASSIGNABLE_TOKEN: 'Unexpected token "$TOK$" found at position $POS$.',
-    EErrorCodes.ecINTERNAL_ERROR: "Internal error",
+    EErrorCodes.ecINTERNAL_ERROR: "Internal error.",
     EErrorCodes.ecINVALID_NAME: 'Invalid function-, variable- or constant name: "$TOK$".',
     EErrorCodes.ecINVALID_BINOP_IDENT: 'Invalid binary operator identifier: "$TOK$".',
     EErrorCodes.ecINVALID_INFIX_IDENT: 'Invalid infix operator identifier: "$TOK$".',
@@ -18,52 +18,52 @@ ERROR_MESSAGES: dict[EErrorCodes, str] = {
     EErrorCodes.ecINVALID_FUN_PTR: "Invalid pointer to callback function.",
     EErrorCodes.ecEMPTY_EXPRESSION: "Expression is empty.",
     EErrorCodes.ecINVALID_VAR_PTR: "Invalid pointer to variable.",
-    EErrorCodes.ecUNEXPECTED_OPERATOR: 'Unexpected operator "$TOK$" found at position $POS$',
-    EErrorCodes.ecUNEXPECTED_EOF: "Unexpected end of expression at position $POS$",
-    EErrorCodes.ecUNEXPECTED_ARG_SEP: "Unexpected argument separator at position $POS$",
-    EErrorCodes.ecUNEXPECTED_PARENS: 'Unexpected parenthesis "$TOK$" at position $POS$',
-    EErrorCodes.ecUNEXPECTED_FUN: 'Unexpected function "$TOK$" at position $POS$',
-    EErrorCodes.ecUNEXPECTED_VAL: 'Unexpected value "$TOK$" found at position $POS$',
-    EErrorCodes.ecUNEXPECTED_VAR: 'Unexpected variable "$TOK$" found at position $POS$',
-    EErrorCodes.ecUNEXPECTED_ARG: "Function arguments used without a function (position: $POS$)",
-    EErrorCodes.ecMISSING_PARENS: "Missing parenthesis",
+    EErrorCodes.ecUNEXPECTED_OPERATOR: 'Unexpected operator "$TOK$" found at position $POS$.',
+    EErrorCodes.ecUNEXPECTED_EOF: "Unexpected end of expression at position $POS$.",
+    EErrorCodes.ecUNEXPECTED_ARG_SEP: "Unexpected argument separator at position $POS$.",
+    EErrorCodes.ecUNEXPECTED_PARENS: 'Unexpected parenthesis "$TOK$" at position $POS$.',
+    EErrorCodes.ecUNEXPECTED_FUN: 'Unexpected function "$TOK$" at position $POS$.',
+    EErrorCodes.ecUNEXPECTED_VAL: 'Unexpected value "$TOK$" found at position $POS$.',
+    EErrorCodes.ecUNEXPECTED_VAR: 'Unexpected variable "$TOK$" found at position $POS$.',
+    EErrorCodes.ecUNEXPECTED_ARG: "Function arguments used without a function (position: $POS$).",
+    EErrorCodes.ecMISSING_PARENS: "Missing parenthesis.",
     EErrorCodes.ecTOO_MANY_PARAMS: (
-        'Too many parameters for function "$TOK$" at expression position $POS$'
+        'Too many parameters for function "$TOK$" at expression position $POS$.'
     ),
     EErrorCodes.ecTOO_FEW_PARAMS: (
-        'Too few parameters for function "$TOK$" at expression position $POS$'
+        'Too few parameters for function "$TOK$" at expression position $POS$.'
     ),
-    EErrorCodes.ecDIV_BY_ZERO: "Divide by zero",
-    EErrorCodes.ecDOMAIN_ERROR: "Domain error",
-    EErrorCodes.ecNAME_CONFLICT: "Name conflict",
+    EErrorCodes.ecDIV_BY_ZERO: "Divide by zero.",
+    EErrorCodes.ecDOMAIN_ERROR: "Domain error.",
+    EErrorCodes.ecNAME_CONFLICT: "Name conflict.",
     EErrorCodes.ecOPT_PRI: (
-        "Invalid value for operator priority (must be greater or equal to zero)."
+        "Invalid value for operator priority (must be greater than or equal to zero)."
     ),
     EErrorCodes.ecBUILTIN_OVERLOAD: (
-        'user defined binary operator "$TOK$" conflicts with a built in operator.'
+        'User-defined binary operator "$TOK$" conflicts with a built-in operator.'
     ),
     EErrorCodes.ecUNEXPECTED_STR: "Unexpected string token found at position $POS$.",
     EErrorCodes.ecUNTERMINATED_STRING: "Unterminated string starting at position $POS$.",
-    EErrorCodes.ecSTRING_EXPECTED: "String function called with a non string type of argument.",
+    EErrorCodes.ecSTRING_EXPECTED: "String function called with a non-string type of argument.",
     EErrorCodes.ecVAL_EXPECTED: "String value used where a numerical argument is expected.",
     EErrorCodes.ecOPRT_TYPE_CONFLICT: (
         'No suitable overload for operator "$TOK$" at position $POS$.'
     ),
     EErrorCodes.ecSTR_RESULT: "Strings must only be used as function arguments!",
     EErrorCodes.ecGENERIC: "Parser error.",
-    EErrorCodes.ecLOCALE: "Decimal separator is identic to function argument separator.",
+    EErrorCodes.ecLOCALE: "Decimal separator is identical to function argument separator.",
     EErrorCodes.ecUNEXPECTED_CONDITIONAL: (
         'The "$TOK$" operator must be preceded by a closing bracket.'
     ),
-    EErrorCodes.ecMISSING_ELSE_CLAUSE: "If-then-else operator is missing an else clause",
-    EErrorCodes.ecMISPLACED_COLON: "Misplaced colon at position $POS$",
+    EErrorCodes.ecMISSING_ELSE_CLAUSE: "If-then-else operator is missing an else clause.",
+    EErrorCodes.ecMISPLACED_COLON: "Misplaced colon at position $POS$.",
     EErrorCodes.ecUNREASONABLE_NUMBER_OF_COMPUTATIONS: (
-        "Number of computations to small for bulk mode. (Vectorisation overhead too costly)"
+        "Number of computations too small for bulk mode (vectorisation overhead too costly)."
     ),
     EErrorCodes.ecIDENTIFIER_TOO_LONG: "Identifier too long.",
     EErrorCodes.ecEXPRESSION_TOO_LONG: "Expression too long.",
     EErrorCodes.ecINVALID_CHARACTERS_FOUND: (
-        "Invalid non printable characters found in expression/identifer!"
+        "Invalid non-printable characters found in expression/identifier!"
     ),
     EErrorCodes.ecBYTECODE_IMPORT_EXPORT_DISABLED: (
         "Bytecode cannot be imported or exported when parser is using a variable factory!"

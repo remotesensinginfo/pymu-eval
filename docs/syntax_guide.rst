@@ -26,12 +26,17 @@ Built-in Constants
      - Euler's number :math:`e`
    * - ``pi``
      - :math:`3.14159265358979323846`
-     - :func:`~pymu_eval.eval_expr` / :func:`~pymu_eval.evaluate`
-     - Convenience alias for ``_pi`` (unless overridden by a variable named ``pi``)
+     - :func:`~pymu_eval.eval_expr` / :func:`~pymu_eval.evaluate` only
+     - Convenience alias for ``_pi``
    * - ``e``
      - :math:`2.71828182845904523536`
-     - :func:`~pymu_eval.eval_expr` / :func:`~pymu_eval.evaluate`
-     - Convenience alias for ``_e`` (unless overridden by a variable named ``e``)
+     - :func:`~pymu_eval.eval_expr` / :func:`~pymu_eval.evaluate` only
+     - Convenience alias for ``_e``
+
+Because ``pi`` and ``e`` are registered as constants by :func:`~pymu_eval.eval_expr`, passing a
+variable with either name to it raises a :class:`~pymu_eval.ParserError` (``ecNAME_CONFLICT``,
+message ``"Name conflict."``). A plain :class:`~pymu_eval.Parser` does not define ``pi`` or ``e``,
+so you can use those names for your own variables there.
 
 You can register additional constants with ``parser.define_const(name, value)`` or
 ``parser.DefineConst(name, value)``.
@@ -39,8 +44,9 @@ You can register additional constants with ``parser.define_const(name, value)`` 
 Built-in Binary Operators & Precedence
 ======================================
 
-Binary operators are listed below from **lowest** to **highest** precedence (matching
-:class:`~pymu_eval.EOprtPrecedence`):
+Binary operators are listed below from **lowest** to **highest** precedence. Precedence values
+``1``–``8`` are the members of :class:`~pymu_eval.EOprtPrecedence` (``prLOR`` … ``prPOW``);
+``=`` and ``? :`` are handled internally by the parser.
 
 .. list-table::
    :header-rows: 1
@@ -52,46 +58,46 @@ Binary operators are listed below from **lowest** to **highest** precedence (mat
      - Description
    * - ``=``
      - ``-1``
-     - Right
-     - Variable assignment (``a = b = 5``)
+     - Left
+     - Variable assignment (``a = 5``). The left operand must be a variable. Chained assignment
+       ``a = b = 5`` is not supported; write ``a = (b = 5)`` instead.
    * - ``? :``
      - ``0``
      - Right
      - Ternary conditional (``cond ? then_expr : else_expr``)
    * - ``||``
-     - ``1``
+     - ``1`` (``prLOR``)
      - Left
      - Logical OR (non-zero is true; returns ``1.0`` or ``0.0``)
    * - ``&&``
-     - ``2``
+     - ``2`` (``prLAND``)
      - Left
      - Logical AND (non-zero is true; returns ``1.0`` or ``0.0``)
    * - ``|``
-     - ``3``
+     - ``3`` (``prBOR``)
      - Left
-     - Bitwise OR (enabled in :class:`~pymu_eval.ParserInt` or when defined)
+     - Bitwise OR (built into :class:`~pymu_eval.ParserInt`; available in
+       :class:`~pymu_eval.Parser` only if you define it)
    * - ``&``
-     - ``4``
+     - ``4`` (``prBAND``)
      - Left
-     - Bitwise AND (enabled in :class:`~pymu_eval.ParserInt` or when defined)
-   * - ``!=``, ``==``
-     - ``5``
+     - Bitwise AND (built into :class:`~pymu_eval.ParserInt`; available in
+       :class:`~pymu_eval.Parser` only if you define it)
+   * - ``==``, ``!=``, ``<``, ``<=``, ``>``, ``>=``
+     - ``5`` (``prCMP``)
      - Left
-     - Inequality and equality comparison (``1.0`` or ``0.0``)
-   * - ``<``, ``<=``, ``>``, ``>=``
-     - ``6``
-     - Left
-     - Relational comparisons (``1.0`` or ``0.0``)
+     - Equality, inequality and relational comparisons (``1.0`` or ``0.0``). All comparison
+       operators share one precedence level, so ``1 < 2 == 1`` is ``(1 < 2) == 1``.
    * - ``+``, ``-``
-     - ``7``
+     - ``6`` (``prADD_SUB``)
      - Left
      - Addition and subtraction
    * - ``*``, ``/``
-     - ``8``
+     - ``7`` (``prMUL_DIV``)
      - Left
      - Multiplication and division
    * - ``^``
-     - ``9``
+     - ``8`` (``prPOW``)
      - Right
      - Exponentiation (``2^3^2 == 2^(3^2) == 512``)
 
@@ -107,11 +113,18 @@ Prefix (Infix) Unary Operators
      - Description
    * - ``-``
      - ``7`` (``prINFIX``)
-     - Unary negation (``-x``). Matching C++ ``muParser``, unary ``-`` has addition/subtraction
-       precedence, so ``-2^2 == -(2^2) == -4`` and ``2^-2 == 2^(-2) == 0.25``.
+     - Unary negation (``-x``). Matching C++ ``muParser``, unary ``-`` binds more tightly than
+       binary addition/subtraction (``6``) but less tightly than ``^`` (``8``), so
+       ``-2^2 == -(2^2) == -4`` and ``2^-2 == 2^(-2) == 0.25``.
    * - ``+``
      - ``7`` (``prINFIX``)
      - Unary identity (``+x``).
+
+``prINFIX`` and ``prPOSTFIX`` (both ``7``, the precedence used for custom prefix and postfix
+operators) are plain ``int`` constants exported from ``pymu_eval``, not
+:class:`~pymu_eval.EOprtPrecedence` members, because a Python ``IntEnum`` would turn them into
+aliases of ``prMUL_DIV``. ``EOprtPrecedence.prINFIX`` and ``EOprtPrecedence.prPOSTFIX`` still work
+as attribute lookups for compatibility.
 
 Built-in Mathematical Functions
 ===============================
@@ -233,6 +246,9 @@ the provided arguments** (broadcasting automatically):
    * - ``max(x1, x2, ...)``
      - Element-wise maximum across all arguments
 
+``min`` and ``max`` propagate NaN for scalars and arrays alike: if any argument is NaN, the
+result is NaN (as with ``numpy.minimum`` / ``numpy.maximum``).
+
 Ternary Conditional (``? :``)
 =============================
 
@@ -272,18 +288,52 @@ Multiple expressions can be separated by commas at the top level of an expressio
    # eval_multi() returns a list of all expression results: [5.0, 10.0, 15.0]
    all_vals = p.eval_multi()
 
+:func:`~pymu_eval.eval_expr` behaves like ``eval()`` and returns only the last expression's value.
+
 Integer Parser (``ParserInt``)
 ==============================
 
 :class:`~pymu_eval.ParserInt` is a specialized subclass for integer arithmetic, hexadecimal/binary
-literals, and bitwise logic:
+literals, and bitwise logic. Operands are rounded to the nearest integer (halves away from zero)
+and must fit in a signed 32-bit integer.
 
-- **Hexadecimal literals**: ``0xff``, ``0x10`` (prefixed with ``0x``)
-- **Binary literals**: ``#1010``, ``#1111`` (prefixed with ``#``)
-- **Bitwise & Integer Operators**:
+- **Literals**:
 
+  - Decimal integers: ``42`` (decimal points are not accepted)
+  - Hexadecimal: ``0xff``, ``0x10`` (prefixed with ``0x``)
+  - Binary: ``#1010``, ``#1111`` (prefixed with ``#``; at most 31 digits)
+
+- **Operators** (from lowest to highest precedence):
+
+  - ``? :`` (ternary conditional)
+  - ``||``, ``&&`` (logical OR / AND)
   - ``|`` (bitwise OR), ``&`` (bitwise AND)
-  - ``<<`` (left bit-shift), ``>>`` (right bit-shift)
-  - ``%`` (modulo), ``/`` (integer division truncating toward zero)
-  - ``!`` (logical NOT prefix operator)
-  - ``&&``, ``||`` (logical AND / OR)
+  - ``==``, ``!=``, ``<``, ``<=``, ``>``, ``>=`` (comparisons)
+  - ``+``, ``-``
+  - ``*``, ``/`` (integer division truncating toward zero), ``%`` (remainder, C++ semantics)
+  - ``-`` (unary negation) and ``!`` (logical NOT) prefix operators (``prINFIX``)
+  - ``^`` (integer power), ``<<`` (left shift), ``>>`` (right shift), all at precedence ``8``
+
+- **Functions**: ``sign``, ``abs``, ``if(cond, a, b)``, and the variadic ``sum``, ``min``, ``max``.
+  There is no unary ``+`` and no floating-point functions such as ``sin``.
+
+Shift semantics match a signed 32-bit ``int`` in C++, for scalars and arrays alike:
+
+- ``>>`` is an arithmetic (sign-preserving) shift: ``-8 >> 1 == -4``.
+- ``<<`` wraps to signed 32-bit: ``1 << 31 == -2147483648``.
+- A shift count outside ``0``–``31`` raises a domain error.
+
+With NumPy or ``xarray`` operands, :class:`~pymu_eval.ParserInt` evaluates element-wise and keeps
+``xarray.DataArray`` dimensions and coordinates. Array values that are NaN, infinite, or outside
+the signed 32-bit range raise :class:`~pymu_eval.ParserError` with code ``ecDOMAIN_ERROR``
+(message ``"Domain error."``); division or remainder by zero raises ``ecDIV_BY_ZERO``
+(``"Divide by zero."``).
+
+.. code-block:: python
+
+   import numpy as np
+   from pymu_eval import ParserInt
+
+   p = ParserInt("(0xff & mask) >> 1")
+   p.define_var("mask", np.array([0x0f, -8, 0xf0]))
+   p.eval()  # array([  7, 124, 120])

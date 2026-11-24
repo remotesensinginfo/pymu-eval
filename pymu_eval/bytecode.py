@@ -5,7 +5,7 @@ Mirrors muParserBytecode.h and muParserBytecode.cpp.
 
 from __future__ import annotations
 
-# pylint: disable=invalid-name
+# pylint: disable=invalid-name,too-many-public-methods
 
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
@@ -85,6 +85,7 @@ class ParserByteCode:
         self._enable_optimizer: bool = True
         self._string_buffer: list[str] = []
         self._expr: str = ""
+        self._num_results: int = 1
 
     def copy(self) -> ParserByteCode:
         """Create a deep copy of this bytecode sequence."""
@@ -96,6 +97,7 @@ class ParserByteCode:
         bc._enable_optimizer = self._enable_optimizer
         bc._string_buffer = list(self._string_buffer)
         bc._expr = self._expr
+        bc._num_results = self._num_results
         return bc
 
     def is_optimizer_enabled(self) -> bool:
@@ -342,6 +344,14 @@ class ParserByteCode:
         self._expr = expr
         self._string_buffer = list(string_buf)
 
+    def set_num_results(self, num_results: int) -> None:
+        """Store the number of comma-separated results the compiled expression produces."""
+        self._num_results = num_results
+
+    def get_num_results(self) -> int:
+        """Return the number of comma-separated results the compiled expression produces."""
+        return self._num_results
+
     def restore_environment(self) -> tuple[str, list[str]]:
         """Return the stored expression string and string literal buffer."""
         return self._expr, list(self._string_buffer)
@@ -363,6 +373,7 @@ class ParserByteCode:
         self._rpn.clear()
         self._stack_pos = 0
         self._max_stack_size = 0
+        self._num_results = 1
 
     # C++ style aliases
     EnableOptimizer = enable_optimizer

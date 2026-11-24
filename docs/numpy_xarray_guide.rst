@@ -130,6 +130,38 @@ You can pass an ``xarray.Dataset`` directly to :func:`~pymu_eval.eval_expr` or
    # 3. Using spatial coordinates ('x', 'y') directly inside an expression
    lat_corrected = eval_expr("nir * cos(y / 1000.0)", ds)
 
+Reusing a ``Parser`` across Datasets
+------------------------------------
+
+A compiled :class:`~pymu_eval.Parser` can be evaluated on a sequence of Datasets (for example one
+per tile or time step) by passing each one to ``eval``. Each call rebinds the Dataset by name:
+
+- **Data variables** are always bound to the values from the new Dataset.
+- **Coordinates** that were bound automatically from a previous Dataset are refreshed with the new
+  Dataset's coordinates, so a reused parser never keeps stale coordinate values.
+- **Variables you defined explicitly** (with ``define_var``, ``set_var`` or keyword arguments to
+  ``eval``) and **constants** are never overwritten by a coordinate of the same name.
+
+:meth:`~pymu_eval.ParserBase.define_dataset` follows the same rules; pass ``include_coords=False``
+to bind only the data variables.
+
+.. code-block:: python
+
+   p = Parser("nir * cos(y / 1000.0)")
+
+   ds_a = xr.Dataset(
+       {"nir": (("y", "x"), np.full((2, 2), 0.5))},
+       coords={"y": [100.0, 200.0], "x": [500.0, 600.0]},
+   )
+   ds_b = ds_a.assign_coords(y=[300.0, 400.0])
+
+   out_a = p.eval(ds_a)  # uses y = [100, 200]
+   out_b = p.eval(ds_b)  # y is refreshed to [300, 400]
+
+   q = Parser("nir * y")
+   q.define_var("y", 2.0)
+   q.eval(ds_b)  # y stays 2.0: user-defined variables win over coordinates
+
 Element-Wise Ternary Conditionals (``? :``)
 ===========================================
 

@@ -43,6 +43,18 @@ Key Capabilities
   ``snake_case`` (e.g., ``set_expr``, ``define_var``, ``eval``) and C++ ``muParser`` ``CamelCase``
   (e.g., ``SetExpr``, ``DefineVar``, ``Eval``).
 
+Architecture Overview
+=====================
+
+An expression is evaluated in four stages:
+
+1. **Inputs**: an expression string (e.g. ``cloud == 0 ? (nir - red)/(nir + red) : nan``) plus
+   variables and constants (scalars, NumPy ``ndarray``, ``xarray`` ``DataArray``/``Dataset``).
+2. ``ParserTokenReader``: lexical analysis and syntax validation.
+3. **Shunting-yard & optimizer**: builds the RPN bytecode (:class:`~pymu_eval.ParserByteCode`).
+4. **Bytecode evaluator**: scalar stack or vectorized NumPy/``xarray`` engine, returning a
+   ``float``, ``np.ndarray``, or ``xr.DataArray``.
+
 Quick Start
 ===========
 
