@@ -12,6 +12,20 @@ localization, and bytecode optimization—directly to Python scalars, **NumPy** 
 Installation
 ============
 
+conda (conda-forge)
+-------------------
+
+``pymu-eval`` is available on `conda-forge <https://anaconda.org/channels/conda-forge/packages/pymu-eval>`_:
+
+.. code-block:: bash
+
+   conda install conda-forge::pymu-eval
+   # For xarray support, also install xarray:
+   conda install conda-forge::xarray
+
+pip
+---
+
 .. code-block:: bash
 
    pip install pymu-eval
